@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <p class="mb-0">Mot de passe: <strong><?= htmlspecialchars($_POST['new_password'] ?? 'admin123') ?></strong></p>
                             </div>
                             <div class="text-center mt-3">
-                                <a href="index.php" class="btn btn-primary">
+                                <a href="admin-login.php" class="btn btn-primary">
                                     <i class="fas fa-home me-2"></i>Retour à l'accueil
                                 </a>
                             </div>

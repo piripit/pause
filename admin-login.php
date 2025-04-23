@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <span class="input-group-text"><i class="fas fa-key"></i></span>
                                     <input type="password" class="form-control" id="password" name="password" required>
                                 </div>
-                                <div class="form-text">Par défaut: admin / admin123</div>
+
                             </div>
                             <button type="submit" class="btn btn-dark w-100">
                                 <i class="fas fa-sign-in-alt me-2"></i>Connexion
