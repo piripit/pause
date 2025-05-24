@@ -3,6 +3,7 @@ require_once 'config/database.php';
 require_once 'includes/functions.php';
 
 $error = '';
+$success = '';
 $employee = null;
 $breaks = [];
 $perimeters = ['campus' => 'Campus', 'entreprise' => 'Entreprise', 'asn' => 'ASN'];
@@ -13,7 +14,42 @@ if (isset($_GET['perimeter']) && array_key_exists($_GET['perimeter'], $perimeter
     $selectedPerimeter = $_GET['perimeter'];
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Traitement de l'activation d'une pause
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['activate_break'])) {
+    $reservation_id = $_POST['reservation_id'] ?? 0;
+    $employee_id = $_POST['employee_id'] ?? 0;
+
+    if (empty($reservation_id)) {
+        $error = 'Erreur: Pause non spécifiée';
+    } else {
+        try {
+            $result = activateBreak($reservation_id);
+
+            if ($result === true) {
+                $success = 'Votre pause a été activée avec succès';
+
+                // Récupérer les informations de l'employé pour afficher ses pauses mises à jour
+                if ($employee_id) {
+                    $employee = getEmployeeById($employee_id);
+                    if ($employee) {
+                        $breaks = getEmployeeBreaks($employee['id']);
+
+                        // Extraire le périmètre du nom de l'employé
+                        if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee['name'], $matches)) {
+                            $selectedPerimeter = strtolower($matches[1]);
+                        }
+                    }
+                }
+            } else {
+                $error = $result; // Afficher l'erreur exacte retournée par la fonction activateBreak
+            }
+        } catch (Exception $e) {
+            $error = 'Une erreur est survenue lors de l\'activation de la pause';
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['activate_break'])) {
     $employee_name = $_POST['employee_name'] ?? '';
     $perimeter = $_POST['perimeter'] ?? '';
 
@@ -64,6 +100,7 @@ if ($selectedPerimeter === 'entreprise') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
+    <meta http-equiv="refresh" content="30">
 </head>
 
 <body>
@@ -85,6 +122,11 @@ if ($selectedPerimeter === 'entreprise') {
                     <li class="nav-item">
                         <a class="nav-link active" href="my-breaks.php">
                             <i class="fas fa-calendar-check me-1"></i>Mes pauses
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="activate-break.php<?= $selectedPerimeter ? '?perimeter=' . $selectedPerimeter : '' ?>">
+                            <i class="fas fa-play-circle me-1"></i>Activer ma pause
                         </a>
                     </li>
                     <?php if ($selectedPerimeter): ?>
@@ -110,6 +152,13 @@ if ($selectedPerimeter === 'entreprise') {
         <?php if ($error): ?>
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 <i class="fas fa-exclamation-circle me-2"></i><?= $error ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($success): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i><?= $success ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         <?php endif; ?>
@@ -175,6 +224,7 @@ if ($selectedPerimeter === 'entreprise') {
                                             <th><i class="fas fa-clock me-1"></i>Horaire</th>
                                             <th><i class="fas fa-sun me-1"></i>Période</th>
                                             <th><i class="fas fa-info-circle me-1"></i>Statut</th>
+                                            <th><i class="fas fa-play me-1"></i>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -192,14 +242,36 @@ if ($selectedPerimeter === 'entreprise') {
                                             $status_class = 'bg-info';
                                             $status_icon = 'fa-clock';
 
-                                            if (!$is_today || $date < $today) {
-                                                $status = 'Terminée';
-                                                $status_class = 'bg-secondary';
-                                                $status_icon = 'fa-check';
-                                            } elseif ($current_time >= $start_time && $current_time <= $end_time) {
+                                            // Vérifier si la pause peut être activée
+                                            $can_activate = $is_today && $break['status'] === 'reserved';
+
+                                            // Permettre l'activation 5 minutes avant le début
+                                            $activation_time = clone $start_time;
+                                            $activation_time->sub(new DateInterval('PT5M')); // 5 minutes avant
+
+                                            // La pause peut être activée à partir de 5 minutes avant et jusqu'à la fin du créneau
+                                            $can_activate = $can_activate && $current_time >= $activation_time && $current_time <= $end_time;
+
+                                            if ($break['status'] === 'started') {
                                                 $status = 'En cours';
                                                 $status_class = 'bg-success';
                                                 $status_icon = 'fa-play';
+                                            } elseif ($break['status'] === 'completed') {
+                                                $status = 'Terminée';
+                                                $status_class = 'bg-primary';
+                                                $status_icon = 'fa-check';
+                                            } elseif ($break['status'] === 'missed') {
+                                                $status = 'Non prise';
+                                                $status_class = 'bg-danger';
+                                                $status_icon = 'fa-times';
+                                            } elseif ($break['status'] === 'delayed') {
+                                                $status = 'Décalée';
+                                                $status_class = 'bg-warning';
+                                                $status_icon = 'fa-exclamation-triangle';
+                                            } elseif (!$is_today || $date < $today) {
+                                                $status = 'Terminée';
+                                                $status_class = 'bg-secondary';
+                                                $status_icon = 'fa-check';
                                             }
                                             ?>
                                             <tr>
@@ -221,6 +293,22 @@ if ($selectedPerimeter === 'entreprise') {
                                                         <i class="fas <?= $status_icon ?> me-1"></i><?= $status ?>
                                                     </span>
                                                 </td>
+                                                <td>
+                                                    <?php if ($can_activate): ?>
+                                                        <form action="my-breaks.php" method="post" class="d-inline">
+                                                            <input type="hidden" name="activate_break" value="1">
+                                                            <input type="hidden" name="reservation_id" value="<?= $break['id'] ?>">
+                                                            <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
+                                                            <button type="submit" class="btn btn-success btn-sm">
+                                                                <i class="fas fa-play me-1"></i>Activer
+                                                            </button>
+                                                        </form>
+                                                    <?php elseif ($break['status'] === 'started'): ?>
+                                                        <span class="badge bg-success">
+                                                            <i class="fas fa-hourglass-half me-1"></i>En cours
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>
@@ -231,6 +319,12 @@ if ($selectedPerimeter === 'entreprise') {
                                 <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $themeColor ?>">
                                     <i class="fas fa-calendar-plus me-2"></i>Réserver une autre pause
                                 </a>
+
+                                <?php if ($selectedPerimeter): ?>
+                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-outline-<?= $themeColor ?> ms-2">
+                                        <i class="fas <?= $themeIcon ?> me-2"></i>Retour à l'espace <?= $perimeters[$selectedPerimeter] ?>
+                                    </a>
+                                <?php endif; ?>
                             </div>
                         <?php endif; ?>
                     </div>

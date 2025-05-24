@@ -210,7 +210,9 @@ if ($admin_perimeter != 'all') {
                                                                 $diff = $start_time->diff($now);
                                                                 $minutes = $diff->i;
                                                                 $seconds = $diff->s;
-                                                                echo ' <small>(' . $minutes . 'm ' . $seconds . 's)</small>';
+                                                                echo ' <span class="countdown-timer" data-start="' . $break['start_timestamp'] . '" data-duration="10">';
+                                                                echo '<small>(' . $minutes . 'm ' . $seconds . 's)</small>';
+                                                                echo '</span>';
                                                             }
                                                             break;
                                                         case 'completed':
@@ -377,9 +379,157 @@ if ($admin_perimeter != 'all') {
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php
+        // Obtenir les statistiques détaillées pour la date sélectionnée
+        $detailed_stats = getDetailedBreakStats($selected_date, $admin_perimeter);
+        ?>
+
+        <!-- Bloc de statistiques détaillées -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                        <h2 class="h5 mb-0"><i class="fas fa-chart-bar me-2"></i>Statistiques détaillées - <?= date('d/m/Y', strtotime($selected_date)) ?></h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <!-- Statistiques générales -->
+                            <div class="col-md-4">
+                                <div class="card bg-light mb-3">
+                                    <div class="card-header">Statistiques générales</div>
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-calendar-day me-1"></i>Total des réservations</span>
+                                            <span class="badge bg-primary rounded-pill"><?= $detailed_stats['total'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-sun me-1"></i>Pauses du matin</span>
+                                            <span class="badge bg-warning text-dark rounded-pill"><?= $detailed_stats['morning_count'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-moon me-1"></i>Pauses de l'après-midi</span>
+                                            <span class="badge bg-info rounded-pill"><?= $detailed_stats['afternoon_count'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="fas fa-clock me-1"></i>Durée moyenne</span>
+                                            <span class="badge bg-secondary rounded-pill"><?= $detailed_stats['avg_duration'] ?> min</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Statut des pauses -->
+                            <div class="col-md-4">
+                                <div class="card bg-light mb-3">
+                                    <div class="card-header">Statut des pauses</div>
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-calendar-check me-1"></i>Réservées</span>
+                                            <span class="badge bg-secondary rounded-pill"><?= $detailed_stats['reserved'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-play me-1"></i>En cours</span>
+                                            <span class="badge bg-success rounded-pill"><?= $detailed_stats['started'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-check me-1"></i>Terminées</span>
+                                            <span class="badge bg-primary rounded-pill"><?= $detailed_stats['completed'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span><i class="fas fa-times me-1"></i>Non prises</span>
+                                            <span class="badge bg-danger rounded-pill"><?= $detailed_stats['missed'] ?></span>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="fas fa-exclamation-triangle me-1"></i>Décalées</span>
+                                            <span class="badge bg-warning text-dark rounded-pill"><?= $detailed_stats['delayed'] ?></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Taux d'utilisation -->
+                            <div class="col-md-4">
+                                <div class="card bg-light mb-3">
+                                    <div class="card-header">Taux d'utilisation</div>
+                                    <div class="card-body">
+                                        <div class="text-center mb-3">
+                                            <h3 class="display-4"><?= $detailed_stats['utilization_rate'] ?>%</h3>
+                                            <p class="mb-0 text-muted">Taux d'occupation des créneaux</p>
+                                        </div>
+
+                                        <?php
+                                        $progress_class = 'bg-success';
+                                        if ($detailed_stats['utilization_rate'] > 90) {
+                                            $progress_class = 'bg-danger';
+                                        } elseif ($detailed_stats['utilization_rate'] > 70) {
+                                            $progress_class = 'bg-warning';
+                                        }
+                                        ?>
+
+                                        <div class="progress" style="height: 25px;">
+                                            <div class="progress-bar <?= $progress_class ?>" role="progressbar"
+                                                style="width: <?= $detailed_stats['utilization_rate'] ?>%;"
+                                                aria-valuenow="<?= $detailed_stats['utilization_rate'] ?>"
+                                                aria-valuemin="0"
+                                                aria-valuemax="100">
+                                                <?= $detailed_stats['utilization_rate'] ?>%
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Script pour le décompte en temps réel des pauses en cours
+        document.addEventListener('DOMContentLoaded', function() {
+            // Mettre à jour tous les compteurs chaque seconde
+            setInterval(updateAllCountdowns, 1000);
+
+            // Initialiser les compteurs
+            updateAllCountdowns();
+
+            function updateAllCountdowns() {
+                const countdowns = document.querySelectorAll('.countdown-timer');
+
+                countdowns.forEach(function(countdown) {
+                    const startTime = new Date(countdown.dataset.start);
+                    const durationMinutes = parseInt(countdown.dataset.duration);
+                    const now = new Date();
+                    const elapsedMs = now - startTime;
+                    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+                    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+                    const remainingSeconds = elapsedSeconds % 60;
+
+                    // Calculer le temps restant
+                    const remainingTotalSeconds = (durationMinutes * 60) - elapsedSeconds;
+                    const remainingMinutes = Math.floor(remainingTotalSeconds / 60);
+                    const secondsLeft = remainingTotalSeconds % 60;
+
+                    // Afficher en rouge si moins de 1 minute restante
+                    if (remainingTotalSeconds <= 60 && remainingTotalSeconds > 0) {
+                        countdown.innerHTML = '<small class="text-danger fw-bold">(' + remainingMinutes + 'm ' + secondsLeft + 's)</small>';
+                    }
+                    // Afficher en vert si pause terminée
+                    else if (remainingTotalSeconds <= 0) {
+                        countdown.innerHTML = '<small class="text-success fw-bold">(Terminée)</small>';
+                    }
+                    // Affichage normal
+                    else {
+                        countdown.innerHTML = '<small>(' + remainingMinutes + 'm ' + secondsLeft + 's)</small>';
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 
 </html>

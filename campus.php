@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reserve'])) {
                 } else {
                     $morning_success = reserveBreak($employee['id'], $morning_slot);
                     if (!$morning_success) {
-                        $error = 'Erreur lors de la réservation du créneau du matin';
+                        $error = 'Erreur lors de la réservation du créneau du matin. Vérifiez que le créneau est bien disponible pour votre périmètre.';
                     }
                 }
             }
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reserve'])) {
                 } else {
                     $afternoon_success = reserveBreak($employee['id'], $afternoon_slot);
                     if (!$afternoon_success) {
-                        $error = 'Erreur lors de la réservation du créneau de l\'après-midi';
+                        $error = 'Erreur lors de la réservation du créneau de l\'après-midi. Vérifiez que le créneau est bien disponible pour votre périmètre.';
                     }
                 }
             }

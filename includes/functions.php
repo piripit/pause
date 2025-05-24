@@ -237,6 +237,51 @@ function reserveBreak($employee_id, $slot_id)
 
     $check_stmt->close();
 
+    // Vérifier que le périmètre de l'employé correspond au périmètre du créneau
+    // 1. Récupérer les détails du créneau
+    $slot_stmt = $conn->prepare("SELECT perimeter FROM break_slots WHERE id = ?");
+    $slot_stmt->bind_param("i", $slot_id);
+    $slot_stmt->execute();
+    $slot_result = $slot_stmt->get_result();
+
+    if ($slot_result->num_rows === 0) {
+        $slot_stmt->close();
+        $conn->close();
+        return false; // Créneau inexistant
+    }
+
+    $slot = $slot_result->fetch_assoc();
+    $slot_perimeter = $slot['perimeter'];
+    $slot_stmt->close();
+
+    // 2. Récupérer les détails de l'employé
+    $employee_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $employee_stmt->bind_param("i", $employee_id);
+    $employee_stmt->execute();
+    $employee_result = $employee_stmt->get_result();
+
+    if ($employee_result->num_rows === 0) {
+        $employee_stmt->close();
+        $conn->close();
+        return false; // Employé inexistant
+    }
+
+    $employee = $employee_result->fetch_assoc();
+    $employee_name = $employee['name'];
+    $employee_stmt->close();
+
+    // 3. Extraire le périmètre de l'employé à partir de son nom
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee_name, $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
+
+    // 4. Vérifier la correspondance des périmètres
+    if ($slot_perimeter !== 'all' && $employee_perimeter !== $slot_perimeter) {
+        $conn->close();
+        return false; // Périmètres incompatibles
+    }
+
     // Insérer la nouvelle réservation
     $stmt = $conn->prepare("INSERT INTO break_reservations (employee_id, slot_id, reservation_date, status) VALUES (?, ?, ?, 'reserved')");
     $stmt->bind_param("iis", $employee_id, $slot_id, $date);
@@ -372,9 +417,11 @@ function activateBreak($reservation_id)
     $conn = getConnection();
 
     // Vérifier si la réservation existe et n'est pas déjà activée
-    $check_stmt = $conn->prepare("SELECT br.id, bs.start_time, bs.end_time, br.status 
+    $check_stmt = $conn->prepare("SELECT br.id, bs.start_time, bs.end_time, br.status, 
+                                  bs.perimeter as slot_perimeter, e.id as employee_id, e.name as employee_name
                                   FROM break_reservations br
                                   JOIN break_slots bs ON br.slot_id = bs.id
+                                  JOIN employees e ON br.employee_id = e.id
                                   WHERE br.id = ?");
     $check_stmt->bind_param("i", $reservation_id);
     $check_stmt->execute();
@@ -392,6 +439,19 @@ function activateBreak($reservation_id)
         $check_stmt->close();
         $conn->close();
         return "Cette pause a déjà été activée";
+    }
+
+    // Extraire le périmètre de l'employé à partir de son nom
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $reservation['employee_name'], $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
+
+    // Vérifier que le périmètre de l'employé correspond au périmètre du créneau
+    if ($employee_perimeter !== $reservation['slot_perimeter'] && $reservation['slot_perimeter'] !== 'all') {
+        $check_stmt->close();
+        $conn->close();
+        return "Vous ne pouvez pas activer une pause qui n'est pas dans votre périmètre";
     }
 
     $check_stmt->close();
@@ -617,6 +677,50 @@ function addBreakReservation($employee_id, $slot_id, $date)
 {
     $conn = getConnection();
 
+    // 1. Récupérer les détails du créneau
+    $slot_stmt = $conn->prepare("SELECT perimeter FROM break_slots WHERE id = ?");
+    $slot_stmt->bind_param("i", $slot_id);
+    $slot_stmt->execute();
+    $slot_result = $slot_stmt->get_result();
+
+    if ($slot_result->num_rows === 0) {
+        $slot_stmt->close();
+        $conn->close();
+        return false; // Créneau inexistant
+    }
+
+    $slot = $slot_result->fetch_assoc();
+    $slot_perimeter = $slot['perimeter'];
+    $slot_stmt->close();
+
+    // 2. Récupérer les détails de l'employé
+    $employee_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $employee_stmt->bind_param("i", $employee_id);
+    $employee_stmt->execute();
+    $employee_result = $employee_stmt->get_result();
+
+    if ($employee_result->num_rows === 0) {
+        $employee_stmt->close();
+        $conn->close();
+        return false; // Employé inexistant
+    }
+
+    $employee = $employee_result->fetch_assoc();
+    $employee_name = $employee['name'];
+    $employee_stmt->close();
+
+    // 3. Extraire le périmètre de l'employé à partir de son nom
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee_name, $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
+
+    // 4. Vérifier la correspondance des périmètres
+    if ($slot_perimeter !== 'all' && $employee_perimeter !== $slot_perimeter) {
+        $conn->close();
+        return false; // Périmètres incompatibles
+    }
+
     $stmt = $conn->prepare("
         INSERT INTO break_reservations 
         (employee_id, slot_id, reservation_date, status)
@@ -627,4 +731,115 @@ function addBreakReservation($employee_id, $slot_id, $date)
 
     $conn->close();
     return $success;
+}
+
+/**
+ * Obtient des statistiques détaillées sur les pauses pour une date donnée et un périmètre
+ * @param string $date La date au format Y-m-d
+ * @param string $perimeter Le périmètre concerné (campus, entreprise, asn, all)
+ * @return array Les statistiques détaillées
+ */
+function getDetailedBreakStats($date, $perimeter = 'all')
+{
+    $conn = getConnection();
+
+    // Statistiques de base
+    $stats = [
+        'total' => 0,
+        'reserved' => 0,
+        'started' => 0,
+        'completed' => 0,
+        'missed' => 0,
+        'delayed' => 0,
+        'avg_duration' => 0,
+        'morning_count' => 0,
+        'afternoon_count' => 0,
+        'utilization_rate' => 0,
+    ];
+
+    // Requête de base
+    $query_base = "FROM break_reservations br
+                   JOIN break_slots bs ON br.slot_id = bs.id
+                   JOIN employees e ON br.employee_id = e.id
+                   WHERE br.reservation_date = ?";
+
+    // Ajouter la condition de filtrage par périmètre si nécessaire
+    $perimeter_condition = "";
+    if ($perimeter !== 'all') {
+        $perimeter_condition = " AND e.name LIKE ?";
+    }
+
+    // 1. Compter le total de pauses pour cette date
+    $query = "SELECT COUNT(*) as count, 
+                     SUM(CASE WHEN bs.period = 'morning' THEN 1 ELSE 0 END) as morning_count,
+                     SUM(CASE WHEN bs.period = 'afternoon' THEN 1 ELSE 0 END) as afternoon_count,
+                     SUM(CASE WHEN br.status = 'reserved' THEN 1 ELSE 0 END) as reserved_count,
+                     SUM(CASE WHEN br.status = 'started' THEN 1 ELSE 0 END) as started_count,
+                     SUM(CASE WHEN br.status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                     SUM(CASE WHEN br.status = 'missed' THEN 1 ELSE 0 END) as missed_count,
+                     SUM(CASE WHEN br.status = 'delayed' THEN 1 ELSE 0 END) as delayed_count
+               " . $query_base . $perimeter_condition;
+
+    $stmt = $conn->prepare($query);
+    if ($perimeter !== 'all') {
+        $prefix = '[' . strtoupper($perimeter) . ']%';
+        $stmt->bind_param("ss", $date, $prefix);
+    } else {
+        $stmt->bind_param("s", $date);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+
+    $stats['total'] = $row['count'];
+    $stats['morning_count'] = $row['morning_count'];
+    $stats['afternoon_count'] = $row['afternoon_count'];
+    $stats['reserved'] = $row['reserved_count'];
+    $stats['started'] = $row['started_count'];
+    $stats['completed'] = $row['completed_count'];
+    $stats['missed'] = $row['missed_count'];
+    $stats['delayed'] = $row['delayed_count'];
+
+    // 2. Calculer la durée moyenne des pauses (pour celles qui sont terminées)
+    $query = "SELECT AVG(TIME_TO_SEC(TIMEDIFF(br.end_timestamp, br.start_timestamp))) as avg_duration
+              " . $query_base . " AND br.status = 'completed' AND br.start_timestamp IS NOT NULL AND br.end_timestamp IS NOT NULL"
+        . $perimeter_condition;
+
+    $stmt = $conn->prepare($query);
+    if ($perimeter !== 'all') {
+        $prefix = '[' . strtoupper($perimeter) . ']%';
+        $stmt->bind_param("ss", $date, $prefix);
+    } else {
+        $stmt->bind_param("s", $date);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+
+    $avg_seconds = $row['avg_duration'] ?? 0;
+    $stats['avg_duration'] = $avg_seconds > 0 ? round($avg_seconds / 60, 1) : 0; // En minutes
+
+    // 3. Calculer le taux d'utilisation des créneaux
+    $total_capacity = 0;
+    if ($perimeter !== 'all') {
+        $stmt = $conn->prepare("SELECT SUM(quota) as total_capacity FROM break_slots WHERE perimeter = ?");
+        $stmt->bind_param("s", $perimeter);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $total_capacity = $row['total_capacity'] ?? 0;
+    } else {
+        $stmt = $conn->prepare("SELECT SUM(quota) as total_capacity FROM break_slots");
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $total_capacity = $row['total_capacity'] ?? 0;
+    }
+
+    $stats['utilization_rate'] = $total_capacity > 0 ? round(($stats['total'] / $total_capacity) * 100, 1) : 0;
+
+    $conn->close();
+    return $stats;
 }
