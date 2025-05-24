@@ -2,11 +2,19 @@
 require_once __DIR__ . '/../config/database.php';
 
 // Récupérer les créneaux de pause (matin ou après-midi)
-function getBreakSlots($period)
+function getBreakSlots($period, $perimeter = 'all')
 {
     $conn = getConnection();
-    $stmt = $conn->prepare("SELECT id, start_time, end_time FROM break_slots WHERE period = ? ORDER BY start_time");
-    $stmt->bind_param("s", $period);
+
+    // Si un périmètre est spécifié, récupérer les créneaux pour ce périmètre
+    if ($perimeter !== 'all') {
+        $stmt = $conn->prepare("SELECT id, start_time, end_time, quota, is_active FROM break_slots WHERE period = ? AND perimeter = ? ORDER BY start_time");
+        $stmt->bind_param("ss", $period, $perimeter);
+    } else {
+        $stmt = $conn->prepare("SELECT id, start_time, end_time, quota, is_active FROM break_slots WHERE period = ? ORDER BY start_time");
+        $stmt->bind_param("s", $period);
+    }
+
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -37,10 +45,34 @@ function getSlotCount($slot_id)
     return $row['count'];
 }
 
+// Obtenir le quota maximum pour un créneau
+function getSlotQuota($slot_id)
+{
+    $conn = getConnection();
+    $stmt = $conn->prepare("SELECT quota FROM break_slots WHERE id = ?");
+    $stmt->bind_param("i", $slot_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows === 0) {
+        $stmt->close();
+        $conn->close();
+        return 3; // Valeur par défaut
+    }
+
+    $row = $result->fetch_assoc();
+    $quota = $row['quota'] ?? 3; // Utiliser 3 comme valeur par défaut si quota n'existe pas
+
+    $stmt->close();
+    $conn->close();
+
+    return $quota;
+}
+
 // Vérifier si un créneau est complet
 function isSlotFull($slot_id)
 {
-    return getSlotCount($slot_id) >= 3;
+    return getSlotCount($slot_id) >= getSlotQuota($slot_id);
 }
 
 // Récupérer les pauses en cours
@@ -430,3 +462,169 @@ function updateBreakStatuses()
 
 // Appeler cette fonction à chaque chargement de page pour maintenir les statuts à jour
 updateBreakStatuses();
+
+/**
+ * Vérifie si un créneau a atteint son quota de réservations pour un périmètre donné
+ * @param int $slot_id L'ID du créneau
+ * @param string $date La date de la réservation
+ * @param string $perimeter Le périmètre à vérifier
+ * @return bool true si le quota est atteint, false sinon
+ */
+function isSlotQuotaReached($slot_id, $date, $perimeter = 'all')
+{
+    $conn = getConnection();
+
+    // Obtenir le quota pour ce créneau
+    $stmt = $conn->prepare("SELECT quota FROM break_slots WHERE id = ?");
+    $stmt->bind_param("i", $slot_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $slot = $result->fetch_assoc();
+    $quota = $slot['quota'] ?? 3; // Valeur par défaut si non définie
+
+    // Compter les réservations existantes pour ce créneau et cette date
+    // Si un périmètre spécifique est demandé, filtrer avec JOIN sur les employés
+    if ($perimeter !== 'all') {
+        $prefix = "[" . strtoupper($perimeter) . "]%";
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS reservation_count
+            FROM break_reservations r
+            JOIN employees e ON r.employee_id = e.id
+            WHERE r.slot_id = ? 
+            AND r.reservation_date = ?
+            AND e.name LIKE ?
+        ");
+        $stmt->bind_param("iss", $slot_id, $date, $prefix);
+    } else {
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS reservation_count
+            FROM break_reservations
+            WHERE slot_id = ? 
+            AND reservation_date = ?
+        ");
+        $stmt->bind_param("is", $slot_id, $date);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = $result->fetch_assoc();
+    $count = $data['reservation_count'];
+
+    $conn->close();
+
+    // Retourner vrai si le quota est atteint ou dépassé
+    return $count >= $quota;
+}
+
+/**
+ * Vérifie si un créneau est actif
+ * @param int $slot_id L'ID du créneau
+ * @param string $perimeter Le périmètre à vérifier
+ * @return bool true si le créneau est actif, false sinon
+ */
+function isSlotActive($slot_id, $perimeter = 'all')
+{
+    $conn = getConnection();
+
+    if ($perimeter !== 'all') {
+        $stmt = $conn->prepare("SELECT is_active FROM break_slots WHERE id = ? AND perimeter = ?");
+        $stmt->bind_param("is", $slot_id, $perimeter);
+    } else {
+        $stmt = $conn->prepare("SELECT is_active FROM break_slots WHERE id = ?");
+        $stmt->bind_param("i", $slot_id);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows === 0) {
+        $conn->close();
+        return false;
+    }
+
+    $slot = $result->fetch_assoc();
+    $is_active = (bool)$slot['is_active'];
+
+    $conn->close();
+
+    return $is_active;
+}
+
+/**
+ * Récupère un créneau par son ID
+ * @param int $id L'ID du créneau
+ * @return array|null Le créneau ou null si non trouvé
+ */
+function getSlotById($id)
+{
+    $conn = getConnection();
+    $stmt = $conn->prepare("SELECT * FROM break_slots WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows === 0) {
+        $conn->close();
+        return null;
+    }
+
+    $slot = $result->fetch_assoc();
+    $conn->close();
+    return $slot;
+}
+
+/**
+ * Vérifie si un employé a déjà une réservation pour une date et une période données
+ * @param int $employee_id L'ID de l'employé
+ * @param string $date La date au format 'Y-m-d'
+ * @param string $period La période ('morning' ou 'afternoon')
+ * @return array|null La réservation existante ou null
+ */
+function getEmployeeReservation($employee_id, $date, $period)
+{
+    $conn = getConnection();
+
+    $stmt = $conn->prepare("
+        SELECT r.* 
+        FROM break_reservations r
+        JOIN break_slots s ON r.slot_id = s.id
+        WHERE r.employee_id = ? 
+        AND r.reservation_date = ?
+        AND s.period = ?
+    ");
+    $stmt->bind_param("iss", $employee_id, $date, $period);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows === 0) {
+        $conn->close();
+        return null;
+    }
+
+    $reservation = $result->fetch_assoc();
+    $conn->close();
+    return $reservation;
+}
+
+/**
+ * Ajoute une nouvelle réservation de pause
+ * @param int $employee_id L'ID de l'employé
+ * @param int $slot_id L'ID du créneau
+ * @param string $date La date de réservation
+ * @return bool true si l'ajout a réussi, false sinon
+ */
+function addBreakReservation($employee_id, $slot_id, $date)
+{
+    $conn = getConnection();
+
+    $stmt = $conn->prepare("
+        INSERT INTO break_reservations 
+        (employee_id, slot_id, reservation_date, status)
+        VALUES (?, ?, ?, 'reserved')
+    ");
+    $stmt->bind_param("iis", $employee_id, $slot_id, $date);
+    $success = $stmt->execute();
+
+    $conn->close();
+    return $success;
+}

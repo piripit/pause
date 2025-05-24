@@ -21,6 +21,7 @@ if (isset($_GET['logout'])) {
     // Supprimer uniquement les variables de session liées à l'employé
     unset($_SESSION['employee_id']);
     unset($_SESSION['employee_name']);
+    unset($_SESSION['employee_perimeter']);
 
     // Rediriger vers la même page pour éviter les problèmes de rafraîchissement
     header('Location: activate-break.php');
@@ -35,22 +36,38 @@ $success = '';
 $employee = null;
 $active_breaks = [];
 $upcoming_breaks = [];
+$perimeters = ['campus' => 'Campus', 'entreprise' => 'Entreprise', 'asn' => 'ASN'];
+$selectedPerimeter = '';
+
+// Si un périmètre est passé en paramètre GET, le présélectionner
+if (isset($_GET['perimeter']) && array_key_exists($_GET['perimeter'], $perimeters)) {
+    $selectedPerimeter = $_GET['perimeter'];
+}
 
 // Traitement de la recherche d'employé
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['search_employee'])) {
     $employee_name = $_POST['employee_name'] ?? '';
+    $perimeter = $_POST['perimeter'] ?? '';
 
     if (empty($employee_name)) {
         $error = 'Veuillez entrer votre nom';
+    } elseif (empty($perimeter) || !array_key_exists($perimeter, $perimeters)) {
+        $error = 'Veuillez sélectionner votre périmètre';
     } else {
-        $employee = getEmployeeByName($employee_name);
+        $selectedPerimeter = $perimeter;
+
+        // Ajouter le préfixe du périmètre au nom
+        $prefixedName = "[" . strtoupper($perimeter) . "] " . $employee_name;
+
+        $employee = getEmployeeByName($prefixedName);
 
         if (!$employee) {
-            $error = 'Aucun employé trouvé avec ce nom';
+            $error = 'Aucun employé trouvé avec ce nom dans le périmètre sélectionné';
         } else {
             // Stocker l'ID de l'employé en session pour les actions suivantes
             $_SESSION['employee_id'] = $employee['id'];
             $_SESSION['employee_name'] = $employee['name'];
+            $_SESSION['employee_perimeter'] = $perimeter;
 
             // Récupérer les pauses actives et à venir pour aujourd'hui
             $active_breaks = getEmployeeActiveBreaks($employee['id']);
@@ -78,6 +95,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['activate_break'])) {
                     $employee = getEmployeeById($_SESSION['employee_id']);
                     $active_breaks = getEmployeeActiveBreaks($_SESSION['employee_id']);
                     $upcoming_breaks = getEmployeeUpcomingBreaks($_SESSION['employee_id']);
+
+                    if (isset($_SESSION['employee_perimeter'])) {
+                        $selectedPerimeter = $_SESSION['employee_perimeter'];
+                    }
                 }
             } else {
                 $error = 'Erreur lors de l\'activation de la pause: ' . $result;
@@ -99,6 +120,26 @@ if (isset($_SESSION['employee_id']) && !$employee) {
     $employee = getEmployeeById($_SESSION['employee_id']);
     $active_breaks = getEmployeeActiveBreaks($_SESSION['employee_id']);
     $upcoming_breaks = getEmployeeUpcomingBreaks($_SESSION['employee_id']);
+
+    if (isset($_SESSION['employee_perimeter'])) {
+        $selectedPerimeter = $_SESSION['employee_perimeter'];
+    }
+}
+
+// Déterminer la couleur du thème en fonction du périmètre sélectionné
+$themeColor = 'primary';
+if ($selectedPerimeter === 'entreprise') {
+    $themeColor = 'success';
+} elseif ($selectedPerimeter === 'asn') {
+    $themeColor = 'danger';
+}
+
+// Déterminer l'icône du thème en fonction du périmètre sélectionné
+$themeIcon = 'fa-university';
+if ($selectedPerimeter === 'entreprise') {
+    $themeIcon = 'fa-building';
+} elseif ($selectedPerimeter === 'asn') {
+    $themeIcon = 'fa-shield-alt';
 }
 ?>
 
@@ -116,7 +157,7 @@ if (isset($_SESSION['employee_id']) && !$employee) {
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $themeColor ?>">
         <div class="container">
             <a class="navbar-brand" href="index.php">
                 <i class="fas fa-coffee me-2"></i>Gestion des Pauses
@@ -132,7 +173,7 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="my-breaks.php">
+                        <a class="nav-link" href="my-breaks.php<?= $selectedPerimeter ? '?perimeter=' . $selectedPerimeter : '' ?>">
                             <i class="fas fa-calendar-check me-1"></i>Mes pauses
                         </a>
                     </li>
@@ -141,6 +182,13 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                             <i class="fas fa-play-circle me-1"></i>Activer ma pause
                         </a>
                     </li>
+                    <?php if ($selectedPerimeter): ?>
+                        <li class="nav-item">
+                            <a class="nav-link" href="<?= $selectedPerimeter ?>.php">
+                                <i class="fas <?= $themeIcon ?> me-1"></i>Espace <?= $perimeters[$selectedPerimeter] ?>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
@@ -171,27 +219,40 @@ if (isset($_SESSION['employee_id']) && !$employee) {
         <div class="row justify-content-center">
             <div class="col-md-10">
                 <div class="card shadow mb-4">
-                    <div class="card-header bg-primary text-white">
+                    <div class="card-header bg-<?= $themeColor ?> text-white">
                         <h1 class="h4 mb-0"><i class="fas fa-play-circle me-2"></i>Activer ma pause</h1>
                     </div>
                     <div class="card-body">
                         <?php if (!$employee): ?>
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>
-                                <p class="mb-0">Entrez votre nom pour activer vos pauses réservées.</p>
+                                <p class="mb-0">Sélectionnez votre périmètre et entrez votre nom pour activer vos pauses réservées.</p>
                             </div>
 
                             <form action="activate-break.php" method="post" class="mb-4">
                                 <input type="hidden" name="search_employee" value="1">
                                 <div class="mb-3">
+                                    <label for="perimeter" class="form-label">Votre périmètre</label>
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text"><i class="fas fa-map-marker-alt"></i></span>
+                                        <select class="form-select" id="perimeter" name="perimeter" required>
+                                            <option value="" <?= !$selectedPerimeter ? 'selected' : '' ?> disabled>Sélectionnez votre périmètre</option>
+                                            <?php foreach ($perimeters as $value => $label): ?>
+                                                <option value="<?= $value ?>" <?= $selectedPerimeter === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
                                     <label for="employee_name" class="form-label">Votre nom</label>
                                     <div class="input-group">
                                         <span class="input-group-text"><i class="fas fa-user"></i></span>
                                         <input type="text" class="form-control" id="employee_name" name="employee_name" required>
-                                        <button type="submit" class="btn btn-primary">
+                                        <button type="submit" class="btn btn-<?= $themeColor ?>">
                                             <i class="fas fa-search me-2"></i>Rechercher
                                         </button>
                                     </div>
+                                    <div class="form-text text-muted">Entrez votre nom sans préfixe, celui-ci sera ajouté automatiquement.</div>
                                 </div>
                             </form>
                         <?php else: ?>
@@ -249,32 +310,23 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                                                             $end_time->add(new DateInterval('PT10M')); // Ajouter 10 minutes
                                                             $now = new DateTime();
                                                             $remaining = $now->diff($end_time);
-                                                            $remaining_minutes = ($remaining->invert ? 0 : $remaining->i);
-                                                            $remaining_seconds = ($remaining->invert ? 0 : $remaining->s);
-
-                                                            // Calculer le pourcentage écoulé
-                                                            $total_seconds = 10 * 60; // 10 minutes en secondes
-                                                            $elapsed_seconds = $total_seconds - ($remaining_minutes * 60 + $remaining_seconds);
-                                                            $percentage = min(100, max(0, ($elapsed_seconds / $total_seconds) * 100));
+                                                            $total_seconds = ($remaining->i * 60) + $remaining->s;
+                                                            $percentage = 100 - (($total_seconds / 600) * 100);
+                                                            $percentage = max(0, min(100, $percentage));
                                                             ?>
 
-                                                            <p class="mb-1">
+                                                            <p class="mb-2">
                                                                 <i class="fas fa-hourglass-half me-1"></i>
                                                                 <strong>Temps restant:</strong>
-                                                                <?php if ($remaining->invert): ?>
-                                                                    <span class="text-danger">Terminée</span>
+                                                                <?php if ($now > $end_time): ?>
+                                                                    <span class="text-danger">Temps écoulé</span>
                                                                 <?php else: ?>
-                                                                    <?= $remaining_minutes ?> min <?= $remaining_seconds ?> sec
+                                                                    <?= $remaining->format('%i min %s sec') ?>
                                                                 <?php endif; ?>
                                                             </p>
 
-                                                            <div class="progress mt-2" style="height: 10px;">
-                                                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
-                                                                    role="progressbar"
-                                                                    style="width: <?= $percentage ?>%"
-                                                                    aria-valuenow="<?= $percentage ?>"
-                                                                    aria-valuemin="0"
-                                                                    aria-valuemax="100"></div>
+                                                            <div class="progress mb-2">
+                                                                <div class="progress-bar bg-success" role="progressbar" style="width: <?= $percentage ?>%" aria-valuenow="<?= $percentage ?>" aria-valuemin="0" aria-valuemax="100"></div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -286,9 +338,9 @@ if (isset($_SESSION['employee_id']) && !$employee) {
 
                                 <!-- Pauses à venir -->
                                 <div class="col-md-6 mb-4">
-                                    <div class="card h-100 border-primary">
-                                        <div class="card-header bg-primary text-white">
-                                            <h2 class="h5 mb-0"><i class="fas fa-calendar-day me-2"></i>Pauses à activer aujourd'hui</h2>
+                                    <div class="card h-100">
+                                        <div class="card-header bg-<?= $themeColor ?> text-white">
+                                            <h2 class="h5 mb-0"><i class="fas fa-calendar me-2"></i>Pauses à venir aujourd'hui</h2>
                                         </div>
                                         <div class="card-body">
                                             <?php if (empty($upcoming_breaks)): ?>
@@ -298,7 +350,7 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                                                 </div>
                                             <?php else: ?>
                                                 <?php foreach ($upcoming_breaks as $break): ?>
-                                                    <div class="card mb-3 border-primary">
+                                                    <div class="card mb-3">
                                                         <div class="card-body">
                                                             <h3 class="h6 mb-2">
                                                                 <?php if ($break['period'] === 'morning'): ?>
@@ -311,42 +363,30 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                                                                     </span>
                                                                 <?php endif; ?>
                                                             </h3>
-                                                            <p class="mb-2">
+                                                            <p class="mb-3">
                                                                 <i class="far fa-clock me-1"></i>
                                                                 <strong>Horaire:</strong> <?= $break['start_time'] ?> - <?= $break['end_time'] ?>
                                                             </p>
 
                                                             <?php
-                                                            // Vérifier si l'heure actuelle est proche de l'heure de la pause
+                                                            $start_time = new DateTime($break['start_time']);
                                                             $now = new DateTime();
-                                                            $break_start = new DateTime($break['start_time']);
-                                                            $break_start->setDate($now->format('Y'), $now->format('m'), $now->format('d'));
-
-                                                            $diff = $now->diff($break_start);
-                                                            $minutes_diff = $diff->h * 60 + $diff->i;
-
-                                                            // Permettre l'activation à tout moment, mais avec des messages différents
-                                                            $is_time_to_activate = $minutes_diff <= 5 && !$diff->invert; // 5 minutes avant
-                                                            $is_late = $diff->invert; // Après l'heure prévue
-                                                            $is_too_early = !$diff->invert && $minutes_diff > 5;
+                                                            $can_activate = ($start_time->format('H:i:s') === $now->format('H:i:s')) || ($now > $start_time);
                                                             ?>
 
                                                             <form action="activate-break.php" method="post">
                                                                 <input type="hidden" name="activate_break" value="1">
                                                                 <input type="hidden" name="reservation_id" value="<?= $break['id'] ?>">
 
-                                                                <?php if ($is_time_to_activate): ?>
-                                                                    <button type="submit" class="btn btn-success w-100">
-                                                                        <i class="fas fa-play-circle me-2"></i>Activer ma pause
-                                                                    </button>
-                                                                <?php elseif ($is_late): ?>
-                                                                    <button type="submit" class="btn btn-warning w-100">
-                                                                        <i class="fas fa-exclamation-triangle me-2"></i>Activer en retard
-                                                                    </button>
-                                                                <?php elseif ($is_too_early): ?>
-                                                                    <button type="submit" class="btn btn-secondary w-100">
-                                                                        <i class="fas fa-clock me-2"></i>Activer en avance
-                                                                    </button>
+                                                                <button type="submit" class="btn btn-<?= $themeColor ?> btn-sm" <?= $can_activate ? '' : 'disabled' ?>>
+                                                                    <i class="fas fa-play-circle me-1"></i>Activer cette pause
+                                                                </button>
+
+                                                                <?php if (!$can_activate): ?>
+                                                                    <div class="form-text text-muted mt-2">
+                                                                        <i class="fas fa-info-circle me-1"></i>
+                                                                        Vous pourrez activer cette pause à partir de <?= $break['start_time'] ?>
+                                                                    </div>
                                                                 <?php endif; ?>
                                                             </form>
                                                         </div>
@@ -359,12 +399,17 @@ if (isset($_SESSION['employee_id']) && !$employee) {
                             </div>
 
                             <div class="text-center mt-3">
-                                <a href="index.php" class="btn btn-outline-primary me-2">
-                                    <i class="fas fa-home me-2"></i>Retour à l'accueil
-                                </a>
-                                <a href="my-breaks.php" class="btn btn-outline-info">
-                                    <i class="fas fa-calendar-check me-2"></i>Voir toutes mes pauses
-                                </a>
+                                <?php if (empty($active_breaks) && empty($upcoming_breaks)): ?>
+                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $themeColor ?>">
+                                        <i class="fas fa-calendar-plus me-2"></i>Réserver une pause
+                                    </a>
+                                <?php endif; ?>
+
+                                <?php if ($selectedPerimeter): ?>
+                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-outline-<?= $themeColor ?> ms-2">
+                                        <i class="fas <?= $themeIcon ?> me-2"></i>Retour à l'espace <?= $perimeters[$selectedPerimeter] ?>
+                                    </a>
+                                <?php endif; ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -372,7 +417,6 @@ if (isset($_SESSION['employee_id']) && !$employee) {
             </div>
         </div>
     </div>
-
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

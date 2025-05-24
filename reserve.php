@@ -1,106 +1,70 @@
 <?php
+session_start();
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
-$error = '';
-$success = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $employee_name = $_POST['employee_name'] ?? '';
-    $morning_slot = $_POST['morning_slot'] ?? null;
-    $afternoon_slot = $_POST['afternoon_slot'] ?? null;
-
-    if (empty($employee_name)) {
-        $error = 'Veuillez entrer votre nom';
-    } elseif (!$morning_slot && !$afternoon_slot) {
-        $error = 'Veuillez sélectionner au moins un créneau de pause';
-    } else {
-        // Vérifier si l'employé existe, sinon le créer
-        $employee = getEmployeeByName($employee_name);
-
-        if (!$employee) {
-            if (addEmployee($employee_name)) {
-                $employee = getEmployeeByName($employee_name);
-            } else {
-                $error = 'Erreur lors de l\'ajout de l\'employé';
-            }
-        }
-
-        if ($employee) {
-            $morning_success = true;
-            $afternoon_success = true;
-
-            // Réserver le créneau du matin
-            if ($morning_slot) {
-                if (isSlotFull($morning_slot)) {
-                    $morning_success = false;
-                    $error = 'Le créneau du matin est complet';
-                } else {
-                    $morning_success = reserveBreak($employee['id'], $morning_slot);
-                    if (!$morning_success) {
-                        $error = 'Erreur lors de la réservation du créneau du matin';
-                    }
-                }
-            }
-
-            // Réserver le créneau de l'après-midi
-            if ($afternoon_slot && $morning_success) {
-                if (isSlotFull($afternoon_slot)) {
-                    $afternoon_success = false;
-                    $error = 'Le créneau de l\'après-midi est complet';
-                } else {
-                    $afternoon_success = reserveBreak($employee['id'], $afternoon_slot);
-                    if (!$afternoon_success) {
-                        $error = 'Erreur lors de la réservation du créneau de l\'après-midi';
-                    }
-                }
-            }
-
-            if ($morning_success && $afternoon_success) {
-                $success = 'Vos pauses ont été réservées avec succès';
-            }
-        }
-    }
+// Vérifier les paramètres
+if (!isset($_POST['employee_id']) || !isset($_POST['slot_id']) || !isset($_POST['date'])) {
+    header('Location: index.php');
+    exit;
 }
-?>
 
-<!DOCTYPE html>
-<html lang="fr">
+$employee_id = $_POST['employee_id'];
+$slot_id = $_POST['slot_id'];
+$date = $_POST['date'];
+$perimeter = $_SESSION['perimeter'] ?? 'all';
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Réservation de Pauses</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
-</head>
+// Vérifier si l'employé existe
+$employee = getEmployeeById($employee_id);
+        if (!$employee) {
+    $_SESSION['error'] = 'Employé non trouvé';
+    header('Location: ' . $perimeter . '.php');
+    exit;
+}
 
-<body>
-    <div class="container py-5">
-        <div class="card shadow-sm">
-            <div class="card-header bg-primary text-white">
-                <h1 class="h4 mb-0">Réservation de Pauses</h1>
-            </div>
-            <div class="card-body">
-                <?php if ($error): ?>
-                    <div class="alert alert-danger"><?= $error ?></div>
-                <?php endif; ?>
+// Extraire le périmètre de l'employé à partir de son nom s'il a un préfixe
+$employee_perimeter = 'all';
+if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/', $employee['name'], $matches)) {
+    $employee_perimeter = strtolower($matches[1]);
+}
 
-                <?php if ($success): ?>
-                    <div class="alert alert-success">
-                        <p><?= $success ?></p>
-                        <p>Merci, <?= htmlspecialchars($employee_name) ?>, vos pauses ont été enregistrées.</p>
-                    </div>
-                <?php endif; ?>
+// Vérifier si le créneau existe
+$slot = getSlotById($slot_id);
+if (!$slot) {
+    $_SESSION['error'] = 'Créneau non trouvé';
+    header('Location: ' . $perimeter . '.php');
+    exit;
+}
 
-                <div class="text-center mt-4">
-                    <a href="index.php" class="btn btn-primary">Retour à l'accueil</a>
-                </div>
-            </div>
-        </div>
-    </div>
+// Vérifier si le créneau est actif
+if (!isSlotActive($slot_id, $employee_perimeter)) {
+    $_SESSION['error'] = 'Ce créneau n\'est pas disponible actuellement';
+    header('Location: ' . $perimeter . '.php');
+    exit;
+}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
+// Vérifier si le quota du créneau est atteint
+if (isSlotQuotaReached($slot_id, $date, $employee_perimeter)) {
+    $_SESSION['error'] = 'Ce créneau a atteint son quota maximum de techniciens';
+    header('Location: ' . $perimeter . '.php');
+    exit;
+}
 
-</html>
+// Vérifier si l'employé a déjà une réservation pour cette date et période
+$existing_reservation = getEmployeeReservation($employee_id, $date, $slot['period']);
+if ($existing_reservation) {
+    $_SESSION['error'] = 'Vous avez déjà réservé une pause pour cette période';
+    header('Location: ' . $perimeter . '.php');
+    exit;
+}
+
+// Ajouter la réservation
+if (addBreakReservation($employee_id, $slot_id, $date)) {
+    $_SESSION['success'] = 'Pause réservée avec succès';
+} else {
+    $_SESSION['error'] = 'Erreur lors de la réservation de la pause';
+}
+
+// Rediriger vers la page appropriée
+header('Location: ' . $perimeter . '.php');
+exit;

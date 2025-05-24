@@ -9,6 +9,35 @@ if (!isset($_SESSION['admin_id'])) {
     exit;
 }
 
+// Récupérer le périmètre de l'administrateur
+$admin_perimeter = $_SESSION['admin_perimeter'] ?? 'all';
+
+// Définir les couleurs et icônes selon le périmètre
+$theme_colors = [
+    'campus' => 'primary',
+    'entreprise' => 'success',
+    'asn' => 'danger',
+    'all' => 'primary'
+];
+
+$theme_icons = [
+    'campus' => 'fa-university',
+    'entreprise' => 'fa-building',
+    'asn' => 'fa-shield-alt',
+    'all' => 'coffee'
+];
+
+$perimeter_names = [
+    'campus' => 'Campus',
+    'entreprise' => 'Entreprise',
+    'asn' => 'ASN',
+    'all' => 'Tous les périmètres'
+];
+
+$theme_color = $theme_colors[$admin_perimeter];
+$theme_icon = $theme_icons[$admin_perimeter];
+$perimeter_name = $perimeter_names[$admin_perimeter];
+
 $success = '';
 $error = '';
 
@@ -19,6 +48,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($employee_name)) {
         $error = 'Veuillez entrer un nom d\'employé';
     } else {
+        // Si l'admin n'est pas global, ajouter le préfixe du périmètre
+        if ($admin_perimeter !== 'all') {
+            $employee_name = "[" . strtoupper($admin_perimeter) . "] " . $employee_name;
+        }
+
         // Vérifier si l'employé existe déjà
         $existing_employee = getEmployeeByName($employee_name);
 
@@ -35,7 +69,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Récupérer tous les employés
-$employees = getAllEmployees();
+$all_employees = getAllEmployees();
+
+// Filtrer les employés selon le périmètre de l'administrateur
+$employees = [];
+if ($admin_perimeter === 'all') {
+    $employees = $all_employees;
+} else {
+    $prefix = "[" . strtoupper($admin_perimeter) . "]";
+    foreach ($all_employees as $employee) {
+        if (strpos($employee['name'], $prefix) === 0) {
+            $employees[] = $employee;
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -44,17 +91,17 @@ $employees = getAllEmployees();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion des Employés - Gestion des Pauses</title>
+    <title>Gestion des Employés - <?= $perimeter_name ?> - Gestion des Pauses</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $theme_color ?>">
         <div class="container">
             <a class="navbar-brand" href="dashboard.php">
-                <i class="fas fa-coffee me-2"></i>Gestion des Pauses - Admin
+                <i class="fas <?= $theme_icon ?> me-2"></i>Gestion des Pauses - <?= $perimeter_name ?>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -103,8 +150,8 @@ $employees = getAllEmployees();
         <div class="row">
             <div class="col-md-4">
                 <div class="card shadow mb-4">
-                    <div class="card-header bg-primary text-white">
-                        <h2 class="h5 mb-0"><i class="fas fa-user-plus me-2"></i>Ajouter un employé</h2>
+                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                        <h2 class="h5 mb-0"><i class="fas fa-user-plus me-2"></i>Ajouter un employé - <?= $perimeter_name ?></h2>
                     </div>
                     <div class="card-body">
                         <form action="employees.php" method="post">
@@ -114,8 +161,13 @@ $employees = getAllEmployees();
                                     <span class="input-group-text"><i class="fas fa-user"></i></span>
                                     <input type="text" class="form-control" id="employee_name" name="employee_name" required>
                                 </div>
+                                <?php if ($admin_perimeter !== 'all'): ?>
+                                    <div class="form-text text-muted">
+                                        <small>Le préfixe [<?= strtoupper($admin_perimeter) ?>] sera automatiquement ajouté</small>
+                                    </div>
+                                <?php endif; ?>
                             </div>
-                            <button type="submit" class="btn btn-primary">
+                            <button type="submit" class="btn btn-<?= $theme_color ?>">
                                 <i class="fas fa-plus-circle me-2"></i>Ajouter
                             </button>
                         </form>
@@ -125,14 +177,14 @@ $employees = getAllEmployees();
 
             <div class="col-md-8">
                 <div class="card shadow">
-                    <div class="card-header bg-info text-white">
-                        <h2 class="h5 mb-0"><i class="fas fa-list me-2"></i>Liste des employés</h2>
+                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                        <h2 class="h5 mb-0"><i class="fas fa-list me-2"></i>Liste des employés - <?= $perimeter_name ?></h2>
                     </div>
                     <div class="card-body">
                         <?php if (empty($employees)): ?>
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>
-                                Aucun employé enregistré.
+                                Aucun employé enregistré pour ce périmètre.
                             </div>
                         <?php else: ?>
                             <div class="table-responsive">

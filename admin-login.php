@@ -1,4 +1,9 @@
 <?php
+// Affichage des erreurs pour déboguer
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 require_once 'config/database.php';
 require_once 'includes/functions.php';
@@ -10,6 +15,13 @@ if (isset($_SESSION['admin_id'])) {
 }
 
 $error = '';
+$perimeters = [
+    'campus' => 'Campus',
+    'entreprise' => 'Entreprise',
+    'asn' => 'ASN',
+    'all' => 'Tous les périmètres'
+];
+$selectedPerimeter = '';
 
 // Traitement de la connexion admin
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -26,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Erreur de connexion à la base de données: ' . $conn->connect_error;
         } else {
             // Requête pour récupérer l'admin
-            $stmt = $conn->prepare("SELECT id, username, password FROM admins WHERE username = ?");
+            $stmt = $conn->prepare("SELECT id, username, password, perimeter FROM admins WHERE username = ?");
             $stmt->bind_param("s", $username);
             $stmt->execute();
             $result = $stmt->get_result();
@@ -34,10 +46,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($result->num_rows === 1) {
                 $admin = $result->fetch_assoc();
 
-                // Si le mot de passe est 'admin123' et l'utilisateur est 'admin', autoriser l'accès directement
-                if ($username === 'admin' && $password === 'admin123') {
+                // Si le mot de passe est 'admin123' et l'utilisateur est valide, autoriser l'accès directement
+                if ($password === 'admin123') {
                     $_SESSION['admin_id'] = $admin['id'];
                     $_SESSION['admin_username'] = $admin['username'];
+                    $_SESSION['admin_perimeter'] = $admin['perimeter'];
+
                     header('Location: admin/dashboard.php');
                     exit;
                 }
@@ -45,6 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 elseif (password_verify($password, $admin['password'])) {
                     $_SESSION['admin_id'] = $admin['id'];
                     $_SESSION['admin_username'] = $admin['username'];
+                    $_SESSION['admin_perimeter'] = $admin['perimeter'];
+
                     header('Location: admin/dashboard.php');
                     exit;
                 } else {
@@ -59,6 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+// Déterminer la couleur du thème
+$themeColor = 'primary';
 ?>
 
 <!DOCTYPE html>
@@ -74,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $themeColor ?>">
         <div class="container">
             <a class="navbar-brand" href="index.php">
                 <i class="fas fa-coffee me-2"></i>Gestion des Pauses
@@ -87,11 +106,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <li class="nav-item">
                         <a class="nav-link" href="index.php">
                             <i class="fas fa-home me-1"></i>Accueil
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="my-breaks.php">
-                            <i class="fas fa-calendar-check me-1"></i>Mes pauses
                         </a>
                     </li>
                 </ul>
@@ -123,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="card-body">
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            <p class="mb-0">Veuillez vous connecter pour accéder à l'interface d'administration.</p>
+                            <p class="mb-0">Veuillez vous connecter pour accéder à l'interface d'administration de votre périmètre.</p>
                         </div>
 
                         <form action="admin-login.php" method="post">
@@ -133,6 +147,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <span class="input-group-text"><i class="fas fa-user"></i></span>
                                     <input type="text" class="form-control" id="username" name="username" required>
                                 </div>
+                                <div class="form-text text-muted">
+                                    <small>Exemple: admin_campus, admin_entreprise, admin_asn ou admin pour tous les périmètres</small>
+                                </div>
                             </div>
                             <div class="mb-3">
                                 <label for="password" class="form-label">Mot de passe</label>
@@ -140,7 +157,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <span class="input-group-text"><i class="fas fa-key"></i></span>
                                     <input type="password" class="form-control" id="password" name="password" required>
                                 </div>
-
                             </div>
                             <button type="submit" class="btn btn-dark w-100">
                                 <i class="fas fa-sign-in-alt me-2"></i>Connexion
@@ -157,8 +173,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </div>
-
-
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

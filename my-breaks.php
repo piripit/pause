@@ -5,21 +5,52 @@ require_once 'includes/functions.php';
 $error = '';
 $employee = null;
 $breaks = [];
+$perimeters = ['campus' => 'Campus', 'entreprise' => 'Entreprise', 'asn' => 'ASN'];
+$selectedPerimeter = '';
+
+// Si un périmètre est passé en paramètre GET, le présélectionner
+if (isset($_GET['perimeter']) && array_key_exists($_GET['perimeter'], $perimeters)) {
+    $selectedPerimeter = $_GET['perimeter'];
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $employee_name = $_POST['employee_name'] ?? '';
+    $perimeter = $_POST['perimeter'] ?? '';
 
     if (empty($employee_name)) {
         $error = 'Veuillez entrer votre nom';
+    } elseif (empty($perimeter) || !array_key_exists($perimeter, $perimeters)) {
+        $error = 'Veuillez sélectionner votre périmètre';
     } else {
-        $employee = getEmployeeByName($employee_name);
+        $selectedPerimeter = $perimeter;
+
+        // Ajouter le préfixe du périmètre au nom
+        $prefixedName = "[" . strtoupper($perimeter) . "] " . $employee_name;
+
+        $employee = getEmployeeByName($prefixedName);
 
         if (!$employee) {
-            $error = 'Aucun employé trouvé avec ce nom';
+            $error = 'Aucun employé trouvé avec ce nom dans le périmètre sélectionné';
         } else {
             $breaks = getEmployeeBreaks($employee['id']);
         }
     }
+}
+
+// Déterminer la couleur du thème en fonction du périmètre sélectionné
+$themeColor = 'primary';
+if ($selectedPerimeter === 'entreprise') {
+    $themeColor = 'success';
+} elseif ($selectedPerimeter === 'asn') {
+    $themeColor = 'danger';
+}
+
+// Déterminer l'icône du thème en fonction du périmètre sélectionné
+$themeIcon = 'fa-university';
+if ($selectedPerimeter === 'entreprise') {
+    $themeIcon = 'fa-building';
+} elseif ($selectedPerimeter === 'asn') {
+    $themeIcon = 'fa-shield-alt';
 }
 ?>
 
@@ -36,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $themeColor ?>">
         <div class="container">
             <a class="navbar-brand" href="index.php">
                 <i class="fas fa-coffee me-2"></i>Gestion des Pauses
@@ -56,6 +87,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <i class="fas fa-calendar-check me-1"></i>Mes pauses
                         </a>
                     </li>
+                    <?php if ($selectedPerimeter): ?>
+                        <li class="nav-item">
+                            <a class="nav-link" href="<?= $selectedPerimeter ?>.php">
+                                <i class="fas <?= $themeIcon ?> me-1"></i>Espace <?= $perimeters[$selectedPerimeter] ?>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
@@ -79,25 +117,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="row justify-content-center">
             <div class="col-md-8">
                 <div class="card shadow mb-4">
-                    <div class="card-header bg-primary text-white">
+                    <div class="card-header bg-<?= $themeColor ?> text-white">
                         <h1 class="h4 mb-0"><i class="fas fa-calendar-check me-2"></i>Consulter mes pauses</h1>
                     </div>
                     <div class="card-body">
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            <p class="mb-0">Entrez votre nom pour consulter vos pauses réservées.</p>
+                            <p class="mb-0">Sélectionnez votre périmètre et entrez votre nom pour consulter vos pauses réservées.</p>
                         </div>
 
                         <form action="my-breaks.php" method="post" class="mb-4">
+                            <div class="mb-3">
+                                <label for="perimeter" class="form-label">Votre périmètre</label>
+                                <div class="input-group mb-3">
+                                    <span class="input-group-text"><i class="fas fa-map-marker-alt"></i></span>
+                                    <select class="form-select" id="perimeter" name="perimeter" required>
+                                        <option value="" <?= !$selectedPerimeter ? 'selected' : '' ?> disabled>Sélectionnez votre périmètre</option>
+                                        <?php foreach ($perimeters as $value => $label): ?>
+                                            <option value="<?= $value ?>" <?= $selectedPerimeter === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="mb-3">
                                 <label for="employee_name" class="form-label">Votre nom</label>
                                 <div class="input-group">
                                     <span class="input-group-text"><i class="fas fa-user"></i></span>
                                     <input type="text" class="form-control" id="employee_name" name="employee_name" required>
-                                    <button type="submit" class="btn btn-primary">
+                                    <button type="submit" class="btn btn-<?= $themeColor ?>">
                                         <i class="fas fa-search me-2"></i>Rechercher
                                     </button>
                                 </div>
+                                <div class="form-text text-muted">Entrez votre nom sans préfixe, celui-ci sera ajouté automatiquement.</div>
                             </div>
                         </form>
 
@@ -107,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <p class="mb-0">Vous n'avez pas encore réservé de pause.</p>
                             </div>
                             <div class="text-center mt-3">
-                                <a href="index.php" class="btn btn-primary">
+                                <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $themeColor ?>">
                                     <i class="fas fa-calendar-plus me-2"></i>Réserver une pause
                                 </a>
                             </div>
@@ -177,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </div>
 
                             <div class="text-center mt-3">
-                                <a href="index.php" class="btn btn-primary">
+                                <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $themeColor ?>">
                                     <i class="fas fa-calendar-plus me-2"></i>Réserver une autre pause
                                 </a>
                             </div>
@@ -187,8 +238,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </div>
-
-
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
