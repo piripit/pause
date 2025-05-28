@@ -237,9 +237,8 @@ function reserveBreak($employee_id, $slot_id)
 
     $check_stmt->close();
 
-    // Vérifier que le périmètre de l'employé correspond au périmètre du créneau
-    // 1. Récupérer les détails du créneau
-    $slot_stmt = $conn->prepare("SELECT perimeter FROM break_slots WHERE id = ?");
+    // Récupérer les détails du créneau pour connaître sa période
+    $slot_stmt = $conn->prepare("SELECT period, perimeter FROM break_slots WHERE id = ?");
     $slot_stmt->bind_param("i", $slot_id);
     $slot_stmt->execute();
     $slot_result = $slot_stmt->get_result();
@@ -251,10 +250,11 @@ function reserveBreak($employee_id, $slot_id)
     }
 
     $slot = $slot_result->fetch_assoc();
+    $slot_period = $slot['period'];
     $slot_perimeter = $slot['perimeter'];
     $slot_stmt->close();
 
-    // 2. Récupérer les détails de l'employé
+    // Récupérer les détails de l'employé
     $employee_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
     $employee_stmt->bind_param("i", $employee_id);
     $employee_stmt->execute();
@@ -270,17 +270,44 @@ function reserveBreak($employee_id, $slot_id)
     $employee_name = $employee['name'];
     $employee_stmt->close();
 
-    // 3. Extraire le périmètre de l'employé à partir de son nom
+    // Extraire le périmètre de l'employé à partir de son nom
     $employee_perimeter = '';
     if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee_name, $matches)) {
         $employee_perimeter = strtolower($matches[1]);
     }
 
-    // 4. Vérifier la correspondance des périmètres
+    // AJOUT: Vérifier si le créneau est actif pour ce périmètre
+    if (!isSlotActive($slot_id, $employee_perimeter)) {
+        $conn->close();
+        return false; // Créneau inactif
+    }
+
+    // Vérifier la correspondance des périmètres
     if ($slot_perimeter !== 'all' && $employee_perimeter !== $slot_perimeter) {
         $conn->close();
         return false; // Périmètres incompatibles
     }
+
+    // Vérifier si l'employé a déjà une pause réservée pour cette période aujourd'hui
+    $period_check_stmt = $conn->prepare("
+        SELECT br.id 
+        FROM break_reservations br
+        JOIN break_slots bs ON br.slot_id = bs.id
+        WHERE br.employee_id = ? 
+        AND br.reservation_date = ? 
+        AND bs.period = ?
+    ");
+    $period_check_stmt->bind_param("iss", $employee_id, $date, $slot_period);
+    $period_check_stmt->execute();
+    $period_check_result = $period_check_stmt->get_result();
+
+    if ($period_check_result->num_rows > 0) {
+        $period_check_stmt->close();
+        $conn->close();
+        return false; // L'employé a déjà une pause pour cette période
+    }
+
+    $period_check_stmt->close();
 
     // Insérer la nouvelle réservation
     $stmt = $conn->prepare("INSERT INTO break_reservations (employee_id, slot_id, reservation_date, status) VALUES (?, ?, ?, 'reserved')");
@@ -322,15 +349,30 @@ function getEmployeeBreaks($employee_id)
 {
     $conn = getConnection();
 
+    // D'abord, récupérer le périmètre de l'employé
+    $emp_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $emp_stmt->bind_param("i", $employee_id);
+    $emp_stmt->execute();
+    $emp_result = $emp_stmt->get_result();
+    $employee = $emp_result->fetch_assoc();
+    $emp_stmt->close();
+
+    // Extraire le périmètre de l'employé
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee['name'], $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
+
     $query = "SELECT br.id, bs.start_time, bs.end_time, bs.period, br.reservation_date, 
                      br.status, br.start_timestamp, br.end_timestamp
               FROM break_reservations br
               JOIN break_slots bs ON br.slot_id = bs.id
               WHERE br.employee_id = ?
+              AND (bs.perimeter = ? OR bs.perimeter = 'all')
               ORDER BY br.reservation_date DESC, bs.period, bs.start_time";
 
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("i", $employee_id);
+    $stmt->bind_param("is", $employee_id, $employee_perimeter);
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -345,14 +387,25 @@ function getEmployeeBreaks($employee_id)
     return $breaks;
 }
 
-// Corriger la fonction getEmployeeActiveBreaks qui contient une erreur de syntaxe
-// Remplacer la fonction actuelle par celle-ci:
-
 // Récupérer les pauses actives d'un employé pour aujourd'hui
 function getEmployeeActiveBreaks($employee_id)
 {
     $conn = getConnection();
     $today = date('Y-m-d');
+
+    // D'abord, récupérer le périmètre de l'employé
+    $emp_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $emp_stmt->bind_param("i", $employee_id);
+    $emp_stmt->execute();
+    $emp_result = $emp_stmt->get_result();
+    $employee = $emp_result->fetch_assoc();
+    $emp_stmt->close();
+
+    // Extraire le périmètre de l'employé
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee['name'], $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
 
     $query = "SELECT br.id, bs.start_time, bs.end_time, bs.period, br.reservation_date, 
                      br.status, br.start_timestamp, br.end_timestamp
@@ -361,10 +414,11 @@ function getEmployeeActiveBreaks($employee_id)
               WHERE br.employee_id = ? 
               AND br.reservation_date = ?
               AND br.status = 'started'
-              AND br.start_timestamp IS NOT NULL";
+              AND br.start_timestamp IS NOT NULL
+              AND (bs.perimeter = ? OR bs.perimeter = 'all')";
 
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("is", $employee_id, $today);
+    $stmt->bind_param("iss", $employee_id, $today, $employee_perimeter);
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -385,6 +439,20 @@ function getEmployeeUpcomingBreaks($employee_id)
     $conn = getConnection();
     $today = date('Y-m-d');
 
+    // D'abord, récupérer le périmètre de l'employé
+    $emp_stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $emp_stmt->bind_param("i", $employee_id);
+    $emp_stmt->execute();
+    $emp_result = $emp_stmt->get_result();
+    $employee = $emp_result->fetch_assoc();
+    $emp_stmt->close();
+
+    // Extraire le périmètre de l'employé
+    $employee_perimeter = '';
+    if (preg_match('/^\[(CAMPUS|ENTREPRISE|ASN)\]/i', $employee['name'], $matches)) {
+        $employee_perimeter = strtolower($matches[1]);
+    }
+
     // Modifié pour récupérer toutes les pauses réservées pour aujourd'hui, quelle que soit l'heure
     $query = "SELECT br.id, bs.start_time, bs.end_time, bs.period, br.reservation_date, 
                      br.status, br.start_timestamp, br.end_timestamp, bs.id as slot_id
@@ -393,10 +461,11 @@ function getEmployeeUpcomingBreaks($employee_id)
               WHERE br.employee_id = ? 
               AND br.reservation_date = ?
               AND br.status = 'reserved'
+              AND (bs.perimeter = ? OR bs.perimeter = 'all')
               ORDER BY bs.period, bs.start_time";
 
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("is", $employee_id, $today);
+    $stmt->bind_param("iss", $employee_id, $today, $employee_perimeter);
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -448,7 +517,7 @@ function activateBreak($reservation_id)
     }
 
     // Vérifier que le périmètre de l'employé correspond au périmètre du créneau
-    if ($employee_perimeter !== $reservation['slot_perimeter'] && $reservation['slot_perimeter'] !== 'all') {
+    if ($reservation['slot_perimeter'] !== 'all' && $employee_perimeter !== $reservation['slot_perimeter']) {
         $check_stmt->close();
         $conn->close();
         return "Vous ne pouvez pas activer une pause qui n'est pas dans votre périmètre";
@@ -586,14 +655,9 @@ function isSlotActive($slot_id, $perimeter = 'all')
 {
     $conn = getConnection();
 
-    if ($perimeter !== 'all') {
-        $stmt = $conn->prepare("SELECT is_active FROM break_slots WHERE id = ? AND perimeter = ?");
-        $stmt->bind_param("is", $slot_id, $perimeter);
-    } else {
-        $stmt = $conn->prepare("SELECT is_active FROM break_slots WHERE id = ?");
-        $stmt->bind_param("i", $slot_id);
-    }
-
+    // CORRECTION: Récupérer le créneau et vérifier s'il est actif ET compatible avec le périmètre
+    $stmt = $conn->prepare("SELECT is_active, perimeter FROM break_slots WHERE id = ?");
+    $stmt->bind_param("i", $slot_id);
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -604,10 +668,14 @@ function isSlotActive($slot_id, $perimeter = 'all')
 
     $slot = $result->fetch_assoc();
     $is_active = (bool)$slot['is_active'];
+    $slot_perimeter = $slot['perimeter'];
 
     $conn->close();
 
-    return $is_active;
+    // Le créneau est actif si :
+    // 1. Il est marqué comme actif (is_active = 1)
+    // 2. ET soit le créneau est pour 'all', soit il correspond au périmètre demandé
+    return $is_active && ($slot_perimeter === 'all' || $slot_perimeter === $perimeter);
 }
 
 /**
@@ -842,4 +910,40 @@ function getDetailedBreakStats($date, $perimeter = 'all')
 
     $conn->close();
     return $stats;
+}
+
+/**
+ * Vérifie si un employé peut réserver une pause dans une période donnée
+ * @param int $employee_id L'ID de l'employé
+ * @param string $period La période ('morning' ou 'afternoon')
+ * @param string $date La date au format 'Y-m-d'
+ * @return bool true si l'employé peut réserver, false sinon
+ */
+function canEmployeeReservePeriod($employee_id, $period, $date = null)
+{
+    if ($date === null) {
+        $date = date('Y-m-d');
+    }
+
+    $conn = getConnection();
+
+    // Vérifier si l'employé a déjà une pause réservée pour cette période aujourd'hui
+    $stmt = $conn->prepare("
+        SELECT br.id 
+        FROM break_reservations br
+        JOIN break_slots bs ON br.slot_id = bs.id
+        WHERE br.employee_id = ? 
+        AND br.reservation_date = ? 
+        AND bs.period = ?
+    ");
+    $stmt->bind_param("iss", $employee_id, $date, $period);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    $can_reserve = $result->num_rows === 0;
+
+    $stmt->close();
+    $conn->close();
+
+    return $can_reserve;
 }

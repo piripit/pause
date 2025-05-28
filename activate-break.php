@@ -18,18 +18,24 @@ session_start();
 
 // Gérer la déconnexion
 if (isset($_GET['logout'])) {
-    // Supprimer uniquement les variables de session liées à l'employé
+    // Supprimer toutes les variables de session liées à l'employé
     unset($_SESSION['employee_id']);
     unset($_SESSION['employee_name']);
     unset($_SESSION['employee_perimeter']);
+    unset($_SESSION['fixed_perimeter']);
 
     // Rediriger vers la même page pour éviter les problèmes de rafraîchissement
-    header('Location: activate-break.php');
+    $redirect_url = 'activate-break.php';
+    if (isset($_GET['perimeter'])) {
+        $redirect_url .= '?perimeter=' . $_GET['perimeter'];
+    }
+    header('Location: ' . $redirect_url);
     exit;
 }
 
 require_once 'config/database.php';
 require_once 'includes/functions.php';
+require_once 'config/theme.php';
 
 $error = '';
 $success = '';
@@ -38,16 +44,25 @@ $active_breaks = [];
 $upcoming_breaks = [];
 $perimeters = ['campus' => 'Campus', 'entreprise' => 'Entreprise', 'asn' => 'ASN'];
 $selectedPerimeter = '';
+$hidePerimeterSelector = false;
 
-// Si un périmètre est passé en paramètre GET, le présélectionner
+// Si un périmètre est passé en paramètre GET, le présélectionner et cacher le sélecteur
 if (isset($_GET['perimeter']) && array_key_exists($_GET['perimeter'], $perimeters)) {
     $selectedPerimeter = $_GET['perimeter'];
+    $hidePerimeterSelector = true;
+    $_SESSION['fixed_perimeter'] = $selectedPerimeter;
 }
+
+// Obtenir les informations de thème
+$theme = getThemeInfo($selectedPerimeter);
+$theme_color = $theme['color'];
+$theme_icon = $theme['icon'];
+$perimeter_name = $theme['name'];
 
 // Traitement de la recherche d'employé
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['search_employee'])) {
     $employee_name = $_POST['employee_name'] ?? '';
-    $perimeter = $_POST['perimeter'] ?? '';
+    $perimeter = $_POST['perimeter'] ?? $selectedPerimeter;
 
     if (empty($employee_name)) {
         $error = 'Veuillez entrer votre nom';
@@ -115,31 +130,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['activate_break'])) {
     }
 }
 
-// Si l'employé est déjà en session, récupérer ses informations
-if (isset($_SESSION['employee_id']) && !$employee) {
-    $employee = getEmployeeById($_SESSION['employee_id']);
-    $active_breaks = getEmployeeActiveBreaks($_SESSION['employee_id']);
-    $upcoming_breaks = getEmployeeUpcomingBreaks($_SESSION['employee_id']);
-
-    if (isset($_SESSION['employee_perimeter'])) {
+// Si l'employé est déjà en session, récupérer ses informations SEULEMENT si le périmètre correspond
+if (isset($_SESSION['employee_id']) && !$employee && isset($_SESSION['employee_perimeter'])) {
+    // Vérifier que le périmètre en session correspond au périmètre actuel
+    if ($selectedPerimeter && $_SESSION['employee_perimeter'] === $selectedPerimeter) {
+        $employee = getEmployeeById($_SESSION['employee_id']);
+        $active_breaks = getEmployeeActiveBreaks($_SESSION['employee_id']);
+        $upcoming_breaks = getEmployeeUpcomingBreaks($_SESSION['employee_id']);
+    } else if (!$selectedPerimeter) {
+        // Si aucun périmètre n'est sélectionné, on peut récupérer l'employé
+        $employee = getEmployeeById($_SESSION['employee_id']);
+        $active_breaks = getEmployeeActiveBreaks($_SESSION['employee_id']);
+        $upcoming_breaks = getEmployeeUpcomingBreaks($_SESSION['employee_id']);
         $selectedPerimeter = $_SESSION['employee_perimeter'];
     }
-}
-
-// Déterminer la couleur du thème en fonction du périmètre sélectionné
-$themeColor = 'primary';
-if ($selectedPerimeter === 'entreprise') {
-    $themeColor = 'success';
-} elseif ($selectedPerimeter === 'asn') {
-    $themeColor = 'danger';
-}
-
-// Déterminer l'icône du thème en fonction du périmètre sélectionné
-$themeIcon = 'fa-university';
-if ($selectedPerimeter === 'entreprise') {
-    $themeIcon = 'fa-building';
-} elseif ($selectedPerimeter === 'asn') {
-    $themeIcon = 'fa-shield-alt';
 }
 ?>
 
@@ -157,7 +161,7 @@ if ($selectedPerimeter === 'entreprise') {
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $themeColor ?>">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $theme_color ?>">
         <div class="container">
             <a class="navbar-brand" href="index.php">
                 <i class="fas fa-coffee me-2"></i>Gestion des Pauses
@@ -178,14 +182,14 @@ if ($selectedPerimeter === 'entreprise') {
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" href="activate-break.php">
+                        <a class="nav-link active" href="activate-break.php<?= $hidePerimeterSelector ? '?perimeter=' . $selectedPerimeter : '' ?>">
                             <i class="fas fa-play-circle me-1"></i>Activer ma pause
                         </a>
                     </li>
                     <?php if ($selectedPerimeter): ?>
                         <li class="nav-item">
                             <a class="nav-link" href="<?= $selectedPerimeter ?>.php">
-                                <i class="fas <?= $themeIcon ?> me-1"></i>Espace <?= $perimeters[$selectedPerimeter] ?>
+                                <i class="fas <?= $theme_icon ?> me-1"></i>Espace <?= $perimeters[$selectedPerimeter] ?>
                             </a>
                         </li>
                     <?php endif; ?>
@@ -219,40 +223,61 @@ if ($selectedPerimeter === 'entreprise') {
         <div class="row justify-content-center">
             <div class="col-md-10">
                 <div class="card shadow mb-4">
-                    <div class="card-header bg-<?= $themeColor ?> text-white">
-                        <h1 class="h4 mb-0"><i class="fas fa-play-circle me-2"></i>Activer ma pause</h1>
+                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                        <h1 class="h4 mb-0">
+                            <i class="fas fa-play-circle me-2"></i>Activer ma pause
+                            <?php if ($hidePerimeterSelector && $selectedPerimeter): ?>
+                                - <?= $perimeters[$selectedPerimeter] ?>
+                            <?php endif; ?>
+                        </h1>
                     </div>
                     <div class="card-body">
                         <?php if (!$employee): ?>
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>
-                                <p class="mb-0">Sélectionnez votre périmètre et entrez votre nom pour activer vos pauses réservées.</p>
+                                <p class="mb-0">
+                                    <?php if ($hidePerimeterSelector): ?>
+                                        Entrez votre nom pour activer vos pauses réservées dans le périmètre <?= $perimeters[$selectedPerimeter] ?>.
+                                    <?php else: ?>
+                                        Sélectionnez votre périmètre et entrez votre nom pour activer vos pauses réservées.
+                                    <?php endif; ?>
+                                </p>
                             </div>
 
-                            <form action="activate-break.php" method="post" class="mb-4">
+                            <form action="activate-break.php<?= $hidePerimeterSelector ? '?perimeter=' . $selectedPerimeter : '' ?>" method="post" class="mb-4">
                                 <input type="hidden" name="search_employee" value="1">
-                                <div class="mb-3">
-                                    <label for="perimeter" class="form-label">Votre périmètre</label>
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text"><i class="fas fa-map-marker-alt"></i></span>
-                                        <select class="form-select" id="perimeter" name="perimeter" required>
-                                            <option value="" <?= !$selectedPerimeter ? 'selected' : '' ?> disabled>Sélectionnez votre périmètre</option>
-                                            <?php foreach ($perimeters as $value => $label): ?>
-                                                <option value="<?= $value ?>" <?= $selectedPerimeter === $value ? 'selected' : '' ?>><?= $label ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
+                                <?php if (!$hidePerimeterSelector): ?>
+                                    <div class="mb-3">
+                                        <label for="perimeter" class="form-label">Votre périmètre</label>
+                                        <div class="input-group mb-3">
+                                            <span class="input-group-text"><i class="fas fa-map-marker-alt"></i></span>
+                                            <select class="form-select" id="perimeter" name="perimeter" required>
+                                                <option value="" <?= !$selectedPerimeter ? 'selected' : '' ?> disabled>Sélectionnez votre périmètre</option>
+                                                <?php foreach ($perimeters as $value => $label): ?>
+                                                    <option value="<?= $value ?>" <?= $selectedPerimeter === $value ? 'selected' : '' ?>><?= $label ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
                                     </div>
-                                </div>
+                                <?php else: ?>
+                                    <input type="hidden" name="perimeter" value="<?= $selectedPerimeter ?>">
+                                <?php endif; ?>
+
                                 <div class="mb-3">
                                     <label for="employee_name" class="form-label">Votre nom</label>
                                     <div class="input-group">
                                         <span class="input-group-text"><i class="fas fa-user"></i></span>
                                         <input type="text" class="form-control" id="employee_name" name="employee_name" required>
-                                        <button type="submit" class="btn btn-<?= $themeColor ?>">
+                                        <button type="submit" class="btn btn-<?= $theme_color ?>">
                                             <i class="fas fa-search me-2"></i>Rechercher
                                         </button>
                                     </div>
-                                    <div class="form-text text-muted">Entrez votre nom sans préfixe, celui-ci sera ajouté automatiquement.</div>
+                                    <div class="form-text text-muted">
+                                        Entrez votre nom sans préfixe, celui-ci sera ajouté automatiquement.
+                                        <?php if ($hidePerimeterSelector): ?>
+                                            (Préfixe: [<?= strtoupper($selectedPerimeter) ?>])
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                             </form>
                         <?php else: ?>
@@ -260,7 +285,7 @@ if ($selectedPerimeter === 'entreprise') {
                                 <i class="fas fa-user-circle me-2"></i>
                                 <p class="mb-0">Bonjour <strong><?= htmlspecialchars($employee['name']) ?></strong>, vous pouvez activer vos pauses ci-dessous.</p>
                                 <p class="mb-0 mt-2">
-                                    <a href="activate-break.php?logout=1" class="alert-link">
+                                    <a href="activate-break.php?logout=1<?= $hidePerimeterSelector ? '&perimeter=' . $selectedPerimeter : '' ?>" class="alert-link">
                                         <i class="fas fa-sign-out-alt me-1"></i>Ce n'est pas vous ?
                                     </a>
                                 </p>
@@ -339,7 +364,7 @@ if ($selectedPerimeter === 'entreprise') {
                                 <!-- Pauses à venir -->
                                 <div class="col-md-6 mb-4">
                                     <div class="card h-100">
-                                        <div class="card-header bg-<?= $themeColor ?> text-white">
+                                        <div class="card-header bg-<?= $theme_color ?> text-white">
                                             <h2 class="h5 mb-0"><i class="fas fa-calendar me-2"></i>Pauses à venir aujourd'hui</h2>
                                         </div>
                                         <div class="card-body">
@@ -371,21 +396,30 @@ if ($selectedPerimeter === 'entreprise') {
                                                             <?php
                                                             $start_time = new DateTime($break['start_time']);
                                                             $now = new DateTime();
-                                                            $can_activate = ($start_time->format('H:i:s') === $now->format('H:i:s')) || ($now > $start_time);
+
+                                                            // Permettre l'activation 5 minutes avant le début et jusqu'à 5 minutes après la fin
+                                                            $activation_start = clone $start_time;
+                                                            $activation_start->sub(new DateInterval('PT5M')); // 5 minutes avant
+
+                                                            $end_time = new DateTime($break['end_time']);
+                                                            $activation_end = clone $end_time;
+                                                            $activation_end->add(new DateInterval('PT5M')); // 5 minutes après la fin
+
+                                                            $can_activate = ($now >= $activation_start && $now <= $activation_end);
                                                             ?>
 
-                                                            <form action="activate-break.php" method="post">
+                                                            <form action="activate-break.php<?= $hidePerimeterSelector ? '?perimeter=' . $selectedPerimeter : '' ?>" method="post">
                                                                 <input type="hidden" name="activate_break" value="1">
                                                                 <input type="hidden" name="reservation_id" value="<?= $break['id'] ?>">
 
-                                                                <button type="submit" class="btn btn-<?= $themeColor ?> btn-sm" <?= $can_activate ? '' : 'disabled' ?>>
+                                                                <button type="submit" class="btn btn-<?= $theme_color ?> btn-sm" <?= $can_activate ? '' : 'disabled' ?>>
                                                                     <i class="fas fa-play-circle me-1"></i>Activer cette pause
                                                                 </button>
 
                                                                 <?php if (!$can_activate): ?>
                                                                     <div class="form-text text-muted mt-2">
                                                                         <i class="fas fa-info-circle me-1"></i>
-                                                                        Vous pourrez activer cette pause à partir de <?= $break['start_time'] ?>
+                                                                        Vous pourrez activer cette pause entre <?= $activation_start->format('H:i') ?> et <?= $activation_end->format('H:i') ?>
                                                                     </div>
                                                                 <?php endif; ?>
                                                             </form>
@@ -400,14 +434,14 @@ if ($selectedPerimeter === 'entreprise') {
 
                             <div class="text-center mt-3">
                                 <?php if (empty($active_breaks) && empty($upcoming_breaks)): ?>
-                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $themeColor ?>">
+                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-<?= $theme_color ?>">
                                         <i class="fas fa-calendar-plus me-2"></i>Réserver une pause
                                     </a>
                                 <?php endif; ?>
 
                                 <?php if ($selectedPerimeter): ?>
-                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-outline-<?= $themeColor ?> ms-2">
-                                        <i class="fas <?= $themeIcon ?> me-2"></i>Retour à l'espace <?= $perimeters[$selectedPerimeter] ?>
+                                    <a href="<?= $selectedPerimeter ?>.php" class="btn btn-outline-<?= $theme_color ?> ms-2">
+                                        <i class="fas <?= $theme_icon ?> me-2"></i>Retour à l'espace <?= $perimeters[$selectedPerimeter] ?>
                                     </a>
                                 <?php endif; ?>
                             </div>

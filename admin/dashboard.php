@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/database.php';
 require_once '../includes/functions.php';
+require_once '../config/theme.php';
 
 // Vérifier si l'admin est connecté
 if (!isset($_SESSION['admin_id'])) {
@@ -10,33 +11,21 @@ if (!isset($_SESSION['admin_id'])) {
 }
 
 // Récupérer le périmètre de l'administrateur
-$admin_perimeter = $_SESSION['admin_perimeter'] ?? 'all';
+// Utiliser current_perimeter s'il existe, sinon admin_perimeter
+$admin_perimeter = $_SESSION['current_perimeter'] ?? $_SESSION['admin_perimeter'] ?? 'all';
 
-// Définir les couleurs et icônes selon le périmètre
-$theme_colors = [
-    'campus' => 'primary',
-    'entreprise' => 'success',
-    'asn' => 'danger',
-    'all' => 'primary'
-];
+// Vérifier que l'admin a accès à ce périmètre
+if ($_SESSION['admin_perimeter'] !== 'all' && $admin_perimeter !== $_SESSION['admin_perimeter']) {
+    // Réinitialiser au périmètre de l'admin
+    $admin_perimeter = $_SESSION['admin_perimeter'];
+    $_SESSION['current_perimeter'] = $admin_perimeter;
+}
 
-$theme_icons = [
-    'campus' => 'fa-university',
-    'entreprise' => 'fa-building',
-    'asn' => 'fa-shield-alt',
-    'all' => 'fa-coffee'
-];
-
-$perimeter_names = [
-    'campus' => 'Campus',
-    'entreprise' => 'Entreprise',
-    'asn' => 'ASN',
-    'all' => 'Tous les périmètres'
-];
-
-$theme_color = $theme_colors[$admin_perimeter];
-$theme_icon = $theme_icons[$admin_perimeter];
-$perimeter_name = $perimeter_names[$admin_perimeter];
+// Obtenir les informations de thème
+$theme = getThemeInfo($admin_perimeter);
+$theme_color = $theme['color'];
+$theme_icon = $theme['icon'];
+$perimeter_name = $theme['name'];
 
 // Filtrer les employés selon le périmètre de l'administrateur
 function filterEmployeesByPerimeter($employees, $perimeter)
@@ -114,7 +103,7 @@ if ($admin_perimeter != 'all') {
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $theme_color ?>">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="dashboard.php">
                 <i class="fas <?= $theme_icon ?> me-2"></i>Gestion des Pauses - <?= $perimeter_name ?>
@@ -141,6 +130,23 @@ if ($admin_perimeter != 'all') {
                     </li>
                 </ul>
                 <div class="d-flex">
+                    <?php if ($_SESSION['admin_perimeter'] === 'all'): ?>
+                        <div class="dropdown me-3">
+                            <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="contextDropdown" data-bs-toggle="dropdown">
+                                <i class="fas fa-exchange-alt me-1"></i>
+                                <?= $perimeter_name ?>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=all">Tous les périmètres</a></li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=campus">Campus</a></li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=entreprise">Entreprise</a></li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=asn">ASN</a></li>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                     <span class="navbar-text me-3">
                         <i class="fas fa-user-circle me-1"></i>
                         <?= htmlspecialchars($_SESSION['admin_username']) ?>
@@ -157,7 +163,7 @@ if ($admin_perimeter != 'all') {
         <div class="row mb-4">
             <div class="col-md-6">
                 <div class="card shadow h-100">
-                    <div class="card-header bg-<?= $theme_color ?> text-white d-flex justify-content-between align-items-center">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                         <h2 class="h5 mb-0"><i class="fas fa-clock me-2"></i>Pauses en cours - <?= $perimeter_name ?></h2>
                         <span class="badge bg-light text-dark">
                             <i class="far fa-clock me-1"></i><?= date('H:i') ?>
@@ -239,7 +245,7 @@ if ($admin_perimeter != 'all') {
 
             <div class="col-md-6">
                 <div class="card shadow h-100">
-                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                    <div class="card-header bg-primary text-white">
                         <h2 class="h5 mb-0"><i class="fas fa-chart-pie me-2"></i>Statistiques du jour - <?= $perimeter_name ?></h2>
                     </div>
                     <div class="card-body">
@@ -300,11 +306,11 @@ if ($admin_perimeter != 'all') {
         </div>
 
         <div class="card shadow">
-            <div class="card-header bg-<?= $theme_color ?> text-white d-flex justify-content-between align-items-center">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0"><i class="fas fa-history me-2"></i>Historique des pauses - <?= $perimeter_name ?></h2>
                 <form action="dashboard.php" method="get" class="d-flex">
                     <input type="date" name="date" value="<?= $selected_date ?>" class="form-control form-control-sm me-2">
-                    <button type="submit" class="btn btn-sm btn-light">
+                    <button type="submit" class="btn btn-primary">
                         <i class="fas fa-search me-1"></i>Afficher
                     </button>
                 </form>
@@ -389,7 +395,7 @@ if ($admin_perimeter != 'all') {
         <div class="row mt-4">
             <div class="col-12">
                 <div class="card shadow">
-                    <div class="card-header bg-<?= $theme_color ?> text-white">
+                    <div class="card-header bg-primary text-white">
                         <h2 class="h5 mb-0"><i class="fas fa-chart-bar me-2"></i>Statistiques détaillées - <?= date('d/m/Y', strtotime($selected_date)) ?></h2>
                     </div>
                     <div class="card-body">

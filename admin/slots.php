@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/database.php';
 require_once '../includes/functions.php';
+require_once '../config/theme.php';
 
 // Vérifier si l'admin est connecté
 if (!isset($_SESSION['admin_id'])) {
@@ -10,33 +11,21 @@ if (!isset($_SESSION['admin_id'])) {
 }
 
 // Récupérer le périmètre de l'administrateur
-$admin_perimeter = $_SESSION['admin_perimeter'] ?? 'all';
+// Utiliser current_perimeter s'il existe, sinon admin_perimeter
+$admin_perimeter = $_SESSION['current_perimeter'] ?? $_SESSION['admin_perimeter'] ?? 'all';
 
-// Définir les couleurs et icônes selon le périmètre
-$theme_colors = [
-    'campus' => 'primary',
-    'entreprise' => 'success',
-    'asn' => 'danger',
-    'all' => 'primary'
-];
+// Vérifier que l'admin a accès à ce périmètre
+if ($_SESSION['admin_perimeter'] !== 'all' && $admin_perimeter !== $_SESSION['admin_perimeter']) {
+    // Réinitialiser au périmètre de l'admin
+    $admin_perimeter = $_SESSION['admin_perimeter'];
+    $_SESSION['current_perimeter'] = $admin_perimeter;
+}
 
-$theme_icons = [
-    'campus' => 'fa-university',
-    'entreprise' => 'fa-building',
-    'asn' => 'fa-shield-alt',
-    'all' => 'fa-coffee'
-];
-
-$perimeter_names = [
-    'campus' => 'Campus',
-    'entreprise' => 'Entreprise',
-    'asn' => 'ASN',
-    'all' => 'Tous les périmètres'
-];
-
-$theme_color = $theme_colors[$admin_perimeter];
-$theme_icon = $theme_icons[$admin_perimeter];
-$perimeter_name = $perimeter_names[$admin_perimeter];
+// Obtenir les informations de thème
+$theme = getThemeInfo($admin_perimeter);
+$theme_color = $theme['color'];
+$theme_icon = $theme['icon'];
+$perimeter_name = $theme['name'];
 
 $success = '';
 $error = '';
@@ -144,7 +133,7 @@ $has_slots = !empty($slots);
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-<?= $theme_color ?>">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="dashboard.php">
                 <i class="fas <?= $theme_icon ?> me-2"></i>Gestion des Pauses - <?= $perimeter_name ?>
@@ -171,6 +160,23 @@ $has_slots = !empty($slots);
                     </li>
                 </ul>
                 <div class="d-flex">
+                    <?php if ($_SESSION['admin_perimeter'] === 'all'): ?>
+                        <div class="dropdown me-3">
+                            <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="contextDropdown" data-bs-toggle="dropdown">
+                                <i class="fas fa-exchange-alt me-1"></i>
+                                <?= $perimeter_name ?>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=all">Tous les périmètres</a></li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=campus">Campus</a></li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=entreprise">Entreprise</a></li>
+                                <li><a class="dropdown-item" href="switch-context.php?perimeter=asn">ASN</a></li>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                     <span class="navbar-text me-3">
                         <i class="fas fa-user-circle me-1"></i>
                         <?= htmlspecialchars($_SESSION['admin_username']) ?>
@@ -212,7 +218,7 @@ $has_slots = !empty($slots);
         <?php endif; ?>
 
         <div class="card shadow">
-            <div class="card-header bg-<?= $theme_color ?> text-white">
+            <div class="card-header bg-primary text-white">
                 <h2 class="h5 mb-0"><i class="fas fa-clock me-2"></i>Gestion des créneaux de pause - <?= $perimeter_name ?></h2>
             </div>
             <div class="card-body">
@@ -353,7 +359,7 @@ $has_slots = !empty($slots);
     <div class="modal fade" id="editSlotModal" tabindex="-1" aria-labelledby="editSlotModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header bg-<?= $theme_color ?> text-white">
+                <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title" id="editSlotModalLabel"><i class="fas fa-edit me-2"></i>Modifier le créneau</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
@@ -389,7 +395,7 @@ $has_slots = !empty($slots);
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                             <i class="fas fa-times me-1"></i>Annuler
                         </button>
-                        <button type="submit" class="btn btn-<?= $theme_color ?>">
+                        <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save me-1"></i>Enregistrer
                         </button>
                     </div>
