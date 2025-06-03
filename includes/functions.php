@@ -573,13 +573,14 @@ function updateBreakStatuses()
     $stmt->execute();
     $stmt->close();
 
-    // 2. Marquer les pauses comme manquées si elles n'ont pas été activées et que l'heure est passée
+    // 2. Marquer les pauses comme manquées SEULEMENT si elles n'ont pas été activées 
+    // ET que l'heure de fin + 30 minutes est passée (au lieu de juste l'heure de fin)
     $stmt = $conn->prepare("UPDATE break_reservations br
                            JOIN break_slots bs ON br.slot_id = bs.id
                            SET br.status = 'missed'
                            WHERE br.status = 'reserved'
                            AND br.reservation_date = ?
-                           AND CONCAT(?, ' ', bs.end_time) < NOW()");
+                           AND CONCAT(?, ' ', bs.end_time) + INTERVAL 30 MINUTE < NOW()");
     $stmt->bind_param("ss", $today, $today);
     $stmt->execute();
     $stmt->close();

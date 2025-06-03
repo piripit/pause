@@ -397,13 +397,13 @@ if (isset($_SESSION['employee_id']) && !$employee && isset($_SESSION['employee_p
                                                             $start_time = new DateTime($break['start_time']);
                                                             $now = new DateTime();
 
-                                                            // Permettre l'activation 5 minutes avant le début et jusqu'à 5 minutes après la fin
+                                                            // Permettre l'activation 30 minutes avant le début et jusqu'à 30 minutes après la fin
                                                             $activation_start = clone $start_time;
-                                                            $activation_start->sub(new DateInterval('PT5M')); // 5 minutes avant
+                                                            $activation_start->sub(new DateInterval('PT30M')); // 30 minutes avant
 
                                                             $end_time = new DateTime($break['end_time']);
                                                             $activation_end = clone $end_time;
-                                                            $activation_end->add(new DateInterval('PT5M')); // 5 minutes après la fin
+                                                            $activation_end->add(new DateInterval('PT30M')); // 30 minutes après la fin
 
                                                             $can_activate = ($now >= $activation_start && $now <= $activation_end);
                                                             ?>
